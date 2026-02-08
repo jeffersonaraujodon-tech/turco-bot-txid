@@ -7,8 +7,11 @@ from telegram.ext import Application, CommandHandler, MessageHandler, ContextTyp
 TOKEN = os.environ.get("BOT_TOKEN")
 ADMIN_ID = int(os.environ.get("ADMIN_ID"))
 
-# Aceita praticamente qualquer TXID/hash (sem espaços), e evita confundir com @username, telefone e comandos
-TXID_REGEX = re.compile(r"^(?!@)(?!\+?\d)(?!/)[A-Za-z0-9:_\-]{20,200}$")
+# ✅ Aceita TXID 0x (ETH/BSC) OU hashes longos gerais
+# ❌ Bloqueia @username e comandos
+TXID_REGEX = re.compile(
+    r"^(0x[a-fA-F0-9]{64}|(?!@)(?!/)[A-Za-z0-9:_\-]{20,200})$"
+)
 
 # Telefone digitado (8 a 16 dígitos, pode ter +, espaço e hífen)
 PHONE_REGEX = re.compile(r"^\+?\d[\d\s\-]{7,15}$")
@@ -125,7 +128,7 @@ async def handle_contact(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     text_to_admin = (
-        "✅ YENİ ÖDEME BİLGİSİ (KONTакт)\n\n"
+        "✅ YENİ ÖDEME BİLGİSİ (KONTAKT)\n\n"
         f"Ad: {user.full_name}\n"
         f"ID: {user_id}\n"
         f"Username: {_username_display(user)}\n"
