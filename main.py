@@ -7,8 +7,8 @@ from telegram.ext import Application, CommandHandler, MessageHandler, ContextTyp
 TOKEN = os.environ.get("BOT_TOKEN")
 ADMIN_ID = int(os.environ.get("ADMIN_ID"))
 
-# Aceita TXID tipo ETH/BSC (0x + 64 hex) OU TRON (alfa-num longo)
-TXID_REGEX = re.compile(r"^(0x[a-fA-F0-9]{64}|[A-Za-z0-9]{60,100})$")
+# Aceita praticamente qualquer TXID/hash (sem espaços), e evita confundir com @username, telefone e comandos
+TXID_REGEX = re.compile(r"^(?!@)(?!\+?\d)(?!/)[A-Za-z0-9:_\-]{20,200}$")
 
 # Telefone digitado (8 a 16 dígitos, pode ter +, espaço e hífen)
 PHONE_REGEX = re.compile(r"^\+?\d[\d\s\-]{7,15}$")
