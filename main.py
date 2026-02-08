@@ -10,12 +10,14 @@ ADMIN_ID = int(os.environ.get("ADMIN_ID"))
 # Aceita TXID tipo ETH/BSC (0x + 64 hex) OU TRON (alfa-num longo)
 TXID_REGEX = re.compile(r"^(0x[a-fA-F0-9]{64}|[A-Za-z0-9]{60,100})$")
 
+# Telefone digitado (8 a 16 dígitos, pode ter +, espaço e hífen)
+PHONE_REGEX = re.compile(r"^\+?\d[\d\s\-]{7,15}$")
 
 START_TEXT = (
     "Hoş geldiniz. 🇹🇷\n\n"
     "1) Ödemeyi yapın\n"
     "2) TXID'yi buraya gönderin\n\n"
-    "TXID gönderildiğinde yöneticiye iletilecektir."
+    "TXID gönderildikten sonra sizden iletişim bilgisi istenecektir."
 )
 
 ASK_CONTACT_TEXT = (
@@ -39,7 +41,7 @@ def phone_keyboard() -> ReplyKeyboardMarkup:
 
 
 async def post_init(app: Application):
-    # Mata qualquer webhook antigo (evita “bot mudo” em alguns casos)
+    # Evita conflito com webhook antigo
     await app.bot.delete_webhook(drop_pending_updates=True)
 
 
@@ -47,61 +49,65 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(START_TEXT)
 
 
+def _username_display(user) -> str:
+    return f"@{user.username}" if user.username else "yok (username yok)"
+
+
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = (update.message.text or "").strip()
     user = update.effective_user
     user_id = user.id
 
-    # 1) Recebe TXID
+    # 1) Recebe TXID -> guarda e pede contato (NÃO fala com admin aqui)
     if TXID_REGEX.match(msg):
-        # Guarda o TXID para usar quando o usuário mandar contato/username
         context.user_data["txid"] = msg
-
-        username_display = f"@{user.username}" if user.username else "yok (username yok)"
-        text_to_admin = (
-            "💰 YENİ TXID GELDİ\n\n"
-            f"Ad: {user.full_name}\n"
-            f"Username: {username_display}\n"
-            f"ID: {user_id}\n\n"
-            f"TXID:\n{msg}"
-        )
-        await context.bot.send_message(chat_id=ADMIN_ID, text=text_to_admin)
-
-        # Agora exige username/telefone
-        await update.message.reply_text(
-            ASK_CONTACT_TEXT,
-            reply_markup=phone_keyboard()
-        )
+        await update.message.reply_text(ASK_CONTACT_TEXT, reply_markup=phone_keyboard())
         return
 
-    # 2) Se o usuário mandou @username manualmente (texto começando com @)
-    # (Só faz sentido se já tiver TXID guardado)
-    if msg.startswith("@") and len(msg) >= 3 and context.user_data.get("txid"):
-        txid = context.user_data.get("txid")
+    # Se já tem TXID guardado, agora aceitamos username OU telefone digitado
+    txid = context.user_data.get("txid")
 
+    # 2) Username manual (@algo)
+    if txid and msg.startswith("@") and len(msg) >= 3:
         text_to_admin = (
-            "✅ KULLANICI BİLGİSİ (USERNAME) GELDİ\n\n"
+            "✅ YENİ ÖDEME BİLGİSİ (USERNAME)\n\n"
             f"Ad: {user.full_name}\n"
             f"ID: {user_id}\n"
-            f"Username (yazdı): {msg}\n\n"
+            f"Telegram Username (yazdı): {msg}\n"
+            f"Profil Username: {_username_display(user)}\n\n"
             f"TXID:\n{txid}"
         )
         await context.bot.send_message(chat_id=ADMIN_ID, text=text_to_admin)
 
-        # Limpa dados e remove teclado
         context.user_data.pop("txid", None)
         await update.message.reply_text(CONFIRM_INFO_TEXT, reply_markup=ReplyKeyboardRemove())
         return
 
-    # 3) Qualquer outra coisa
-    if context.user_data.get("txid"):
-        # Já mandou TXID, agora a gente pede username/telefone
+    # 3) Telefone digitado (+90..., +55..., etc.)
+    if txid and PHONE_REGEX.match(msg):
+        phone_clean = re.sub(r"[\s\-]", "", msg)
+
+        text_to_admin = (
+            "✅ YENİ ÖDEME BİLGİSİ (TELEFON)\n\n"
+            f"Ad: {user.full_name}\n"
+            f"ID: {user_id}\n"
+            f"Telefon (yazdı): {phone_clean}\n"
+            f"Profil Username: {_username_display(user)}\n\n"
+            f"TXID:\n{txid}"
+        )
+        await context.bot.send_message(chat_id=ADMIN_ID, text=text_to_admin)
+
+        context.user_data.pop("txid", None)
+        await update.message.reply_text(CONFIRM_INFO_TEXT, reply_markup=ReplyKeyboardRemove())
+        return
+
+    # 4) Qualquer outra coisa
+    if txid:
         await update.message.reply_text(
             "⚠️ Lütfen @username yazın veya aşağıdaki butondan telefon numaranızı gönderin.",
             reply_markup=phone_keyboard()
         )
     else:
-        # Ainda não mandou TXID
         await update.message.reply_text("❌ Lütfen sadece TXID gönderin (başka mesaj yazmayın).")
 
 
@@ -109,7 +115,6 @@ async def handle_contact(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     user_id = user.id
     contact = update.message.contact
-
     txid = context.user_data.get("txid")
 
     if not txid:
@@ -119,19 +124,16 @@ async def handle_contact(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
-    username_display = f"@{user.username}" if user.username else "yok (username yok)"
-
     text_to_admin = (
-        "📞 TELEFON BİLGİSİ GELDİ\n\n"
+        "✅ YENİ ÖDEME BİLGİSİ (KONTакт)\n\n"
         f"Ad: {user.full_name}\n"
-        f"Username: {username_display}\n"
         f"ID: {user_id}\n"
-        f"Telefon: {contact.phone_number}\n\n"
+        f"Username: {_username_display(user)}\n"
+        f"Telefon (buton): {contact.phone_number}\n\n"
         f"TXID:\n{txid}"
     )
     await context.bot.send_message(chat_id=ADMIN_ID, text=text_to_admin)
 
-    # Limpa dados e remove teclado
     context.user_data.pop("txid", None)
     await update.message.reply_text(CONFIRM_INFO_TEXT, reply_markup=ReplyKeyboardRemove())
 
